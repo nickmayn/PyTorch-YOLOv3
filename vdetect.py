@@ -1,30 +1,79 @@
-from __future__ import division
-
-from models import *
-from utils.utils import *
-from utils.datasets import *
-
+import argparse
+import datetime
 import os
 import sys
 import time
-import datetime
-import argparse
 
-from PIL import Image
 import cv2
-
-import torch
-from torch.utils.data import DataLoader
-from torchvision import datasets
-from torch.autograd import Variable
-import torchvision.transforms as transforms
-
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-from matplotlib.ticker import NullLocator
+import torch
+import torchvision.transforms as transforms
+from PIL import Image
+
+from models import *
+from utils.datasets import *
+from utils.utils import *
+
+
+class DataPrefetcher():
+    def __init__(self, loader):
+        self.loader = iter(loader)
+        self.stream = torch.cuda.Stream()
+        self.preload()
+
+    def preload(self):
+        try:
+            self.next_image, self.next_input = next(self.loader)
+        except StopIteration:
+            self.next_image = None
+            self.next_input = None
+            return
+
+        with torch.cuda.stream(self.stream):
+            self.next_input = self.next_input.cuda(non_blocking=True).float()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.next_input is None:
+            raise StopIteration
+
+        image = self.next_image
+
+        torch.cuda.current_stream().wait_stream(self.stream)
+        input = self.next_input
+        
+        if input is not None:
+            input.record_stream(torch.cuda.current_stream())
+
+        self.preload()
+        return image, input
+
+class VideoLoader:
+    def __init__(self, path):
+        self.cap = cv2.VideoCapture(path)
+        if not self.cap.isOpened():
+            raise RuntimeError()
+
+    def __next__(self):
+        if not self.cap.isOpened():
+            raise StopIteration()
+
+        ret, image = self.cap.read()
+        if not ret:
+            self.cap.release()
+            raise StopIteration()
+
+        data = transforms.ToTensor()(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).cuda()
+        data, _ = pad_to_square(data, 0)
+        data = F.interpolate(data.unsqueeze(0), size=opt.img_size, mode="nearest")
+        return image, data
+
+    def __iter__(self):
+        return self
 
 WINDOW_NAME = 'YOLO'
-
 def open_window(width, height):
     cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(WINDOW_NAME, width, height)
@@ -79,35 +128,22 @@ if __name__ == "__main__":
 
     text_size = 4
 
-    cap = cv2.VideoCapture('test.mp4')
-    if not cap.isOpened():
-        print('Cannot open video')
-        exit(1)
+    data_loader = DataPrefetcher(VideoLoader('test.mp4'))
 
     print("\nPerforming object detection:")
-    prev_time = time.time()
 
     open_window(opt.width, opt.height)
     full_scrn = False
 
     cv2.waitKey(10)
 
-    batch_i = 0
-    while cap.isOpened():
+    for batch_i, (image, input_imgs) in enumerate(data_loader):
         if cv2.getWindowProperty(WINDOW_NAME, 0) < 0:
             # Check to see if the user has closed the window
             # If yes, terminate the program
             break
 
-        # Configure input
-        ret, image = cap.read()
-        if not ret:
-            print("End of Videos")
-            break
-
-        img = transforms.ToTensor()(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).cuda()
-        img, _ = pad_to_square(img, 0)
-        input_imgs = F.interpolate(img.unsqueeze(0), size=opt.img_size, mode="nearest")
+        start_time = time.time()
 
         # Get detections
         with torch.no_grad():
@@ -115,11 +151,7 @@ if __name__ == "__main__":
             detections = non_max_suppression(detections, opt.conf_thres, opt.nms_thres)
 
         # Log progress
-        current_time = time.time()
-        inference_time = datetime.timedelta(seconds=current_time - prev_time)
-        prev_time = current_time
-        print("\t+ Batch %d, Inference Time: %s" % (batch_i, inference_time))
-        batch_i += 1
+        print("\t+ Batch %d, Inference Time: %.2fms" % (batch_i, (time.time() - start_time) * 1000))
 
         thickness = (image.shape[0] + image.shape[1]) // 600
 
@@ -146,17 +178,20 @@ if __name__ == "__main__":
 
                 cv2.rectangle(image, (x1 - thickness // 2, y1), text_end, color, thickness=cv2.FILLED)
                 cv2.putText(image, label, (x1, y1 - baseline), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-
+    
+        speed_text = f"{1.0/(time.time() - start_time):.2f} fps"
+        (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 2)
+        cv2.putText(image, speed_text, (10, text_height + baseline), 
+            cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255), 2)
         cv2.imshow(WINDOW_NAME, image)
  
         # Press Q on keyboard to stop recording
-        key = cv2.waitKey(10)
+        key = cv2.waitKey(1)
         if key == 27 or key == ord('q'):
             break
         elif key == ord('F') or key == ord('f'): # toggle fullscreen
             full_scrn = not full_scrn
             cv2.setWindowProperty(WINDOW_NAME, cv2.WND_PROP_FULLSCREEN,
                                     cv2.WINDOW_FULLSCREEN if full_scrn else cv2.WINDOW_NORMAL)
-            
-    cap.release()
+
     cv2.destroyAllWindows()
