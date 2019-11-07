@@ -9,11 +9,36 @@ import matplotlib.pyplot as plt
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
+import numpy as np
+import mss
 
 from models import *
 from utils.datasets import *
 from utils.utils import *
 
+def prepare_image(img):
+    patch = opt.img_size
+
+    img = img[:, :, :3]
+    img = img.unsqueeze(0).permute(0, 3, 1, 2) # NHWC -> NCHW
+    img *= 1/255.0
+
+    n, c, h, w = img.shape
+
+    new_w = int(w * min(patch/w, patch/h))
+    new_h = int(h * min(patch/w, patch/h))
+    img = F.interpolate(img, size=patch, mode="nearest")
+    
+    n, c, h, w = img.shape
+    dim_diff = np.abs(h - w)
+    # (upper / left) padding and (lower / right) padding
+    pad1, pad2 = dim_diff // 2, dim_diff - dim_diff // 2
+    # Determine padding
+    pad = (0, 0, pad1, pad2) if h <= w else (pad1, pad2, 0, 0)
+    # Add padding
+    img = F.pad(img, pad, "constant", value=128)
+
+    return img
 
 class DataPrefetcher():
     def __init__(self, loader):
@@ -23,7 +48,8 @@ class DataPrefetcher():
 
     def preload(self):
         try:
-            self.next_image, self.next_input = next(self.loader)
+            self.next_image = next(self.loader)
+            self.next_input = torch.from_numpy(self.next_image)
         except StopIteration:
             self.next_image = None
             self.next_input = None
@@ -31,6 +57,7 @@ class DataPrefetcher():
 
         with torch.cuda.stream(self.stream):
             self.next_input = self.next_input.cuda(non_blocking=True).float()
+            self.next_input = prepare_image(self.next_input)
 
     def __iter__(self):
         return self
@@ -50,6 +77,25 @@ class DataPrefetcher():
         self.preload()
         return image, input
 
+class ScreenCapture():
+    def __init__(self):
+        self.sct = mss.mss()
+
+        mon = self.sct.monitors[0]
+        self.monitor = {
+            "top": 14,
+            "left": 0,
+            "width": 1920,
+            "height": 1080,
+            "mon": mon,
+        }
+
+    def __next__(self):
+        return np.array(self.sct.grab(self.monitor))
+
+    def __iter__(self):
+        return self
+
 class VideoLoader:
     def __init__(self, path):
         self.cap = cv2.VideoCapture(path)
@@ -65,10 +111,7 @@ class VideoLoader:
             self.cap.release()
             raise StopIteration()
 
-        data = transforms.ToTensor()(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).cuda()
-        data, _ = pad_to_square(data, 0)
-        data = F.interpolate(data.unsqueeze(0), size=opt.img_size, mode="nearest")
-        return image, data
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     def __iter__(self):
         return self
@@ -93,6 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     parser.add_argument('--width', default=1280, type=int)
     parser.add_argument('--height', default=720, type=int)
+    parser.add_argument('--screen', default=False, action='store_true')
     opt = parser.parse_args()
     print(opt)
 
@@ -128,7 +172,10 @@ if __name__ == "__main__":
 
     text_size = 4
 
-    data_loader = DataPrefetcher(VideoLoader('test.mp4'))
+    if opt.screen:
+        data_loader = DataPrefetcher(ScreenCapture())
+    else:
+        data_loader = DataPrefetcher(VideoLoader('test.mp4'))
 
     print("\nPerforming object detection:")
 
@@ -181,8 +228,8 @@ if __name__ == "__main__":
     
         speed_text = f"{1.0/(time.time() - start_time):.2f} fps"
         (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 2)
-        cv2.putText(image, speed_text, (10, text_height + baseline), 
-            cv2.FONT_HERSHEY_PLAIN, 1, (255,255,255), 2)
+        cv2.putText(image, speed_text, (10, 2 * text_height + baseline), 
+            cv2.FONT_HERSHEY_PLAIN, 2, (0,0,255), 2)
         cv2.imshow(WINDOW_NAME, image)
  
         # Press Q on keyboard to stop recording
