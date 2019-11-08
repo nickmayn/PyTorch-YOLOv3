@@ -24,19 +24,15 @@ def prepare_image(img):
     img *= 1/255.0
 
     n, c, h, w = img.shape
-
-    new_w = int(w * min(patch/w, patch/h))
-    new_h = int(h * min(patch/w, patch/h))
-    img = F.interpolate(img, size=patch, mode="nearest")
-    
-    n, c, h, w = img.shape
     dim_diff = np.abs(h - w)
     # (upper / left) padding and (lower / right) padding
     pad1, pad2 = dim_diff // 2, dim_diff - dim_diff // 2
     # Determine padding
     pad = (0, 0, pad1, pad2) if h <= w else (pad1, pad2, 0, 0)
     # Add padding
-    img = F.pad(img, pad, "constant", value=128)
+    img = F.pad(img, pad, "constant", value=0)
+
+    img = F.interpolate(img, size=patch, mode="nearest")
 
     return img
 
@@ -55,6 +51,10 @@ class DataPrefetcher():
             self.next_input = None
             return
 
+        if not torch.cuda.is_available():
+            self.next_input = prepare_image(self.next_input.float())
+            return
+
         with torch.cuda.stream(self.stream):
             self.next_input = self.next_input.cuda(non_blocking=True).float()
             self.next_input = prepare_image(self.next_input)
@@ -65,6 +65,10 @@ class DataPrefetcher():
     def __next__(self):
         if self.next_input is None:
             raise StopIteration
+
+        if not torch.cuda.is_available():
+            self.preload()
+            return self.next_image, self.next_input
 
         image = self.next_image
 
@@ -83,7 +87,7 @@ class ScreenCapture():
 
         mon = self.sct.monitors[0]
         self.monitor = {
-            "top": 14,
+            "top": 46,
             "left": 0,
             "width": 1920,
             "height": 1080,
@@ -91,7 +95,8 @@ class ScreenCapture():
         }
 
     def __next__(self):
-        return np.array(self.sct.grab(self.monitor))
+        image = np.array(self.sct.grab(self.monitor))
+        return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
     def __iter__(self):
         return self
@@ -134,9 +139,10 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1, help="size of the batches")
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
-    parser.add_argument('--width', default=1280, type=int)
-    parser.add_argument('--height', default=720, type=int)
+    parser.add_argument('--width', default=1920, type=int)
+    parser.add_argument('--height', default=1080, type=int)
     parser.add_argument('--screen', default=False, action='store_true')
+    parser.add_argument('-v', default='test.mp4', type=str)
     opt = parser.parse_args()
     print(opt)
 
@@ -175,7 +181,7 @@ if __name__ == "__main__":
     if opt.screen:
         data_loader = DataPrefetcher(ScreenCapture())
     else:
-        data_loader = DataPrefetcher(VideoLoader('test.mp4'))
+        data_loader = DataPrefetcher(VideoLoader(opt.v))
 
     print("\nPerforming object detection:")
 
@@ -227,9 +233,11 @@ if __name__ == "__main__":
                 cv2.putText(image, label, (x1, y1 - baseline), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
     
         speed_text = f"{1.0/(time.time() - start_time):.2f} fps"
-        (text_width, text_height), baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 2)
+        (text_width, text_height), baseline = cv2.getTextSize(speed_text, cv2.FONT_HERSHEY_PLAIN, 1, 2)
         cv2.putText(image, speed_text, (10, 2 * text_height + baseline), 
             cv2.FONT_HERSHEY_PLAIN, 2, (0,0,255), 2)
+        
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
         cv2.imshow(WINDOW_NAME, image)
  
         # Press Q on keyboard to stop recording
