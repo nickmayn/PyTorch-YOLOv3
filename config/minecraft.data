@@ -1,0 +1,4 @@
+classes= 10
+train=data/minecraft/train.txt
+valid=data/minecraft/valid.txt
+names=data/minecraft/classes.names
