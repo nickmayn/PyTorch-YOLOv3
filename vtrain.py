@@ -3,7 +3,7 @@ from __future__ import division
 from models import *
 from utils.logger import *
 from utils.utils import *
-from utils.datasets import ListDataset
+from utils.vdatasets import ListDataset
 from utils.validset import VaildDataset
 from utils.parse_config import *
 
@@ -72,9 +72,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=300, help="number of epochs")
     parser.add_argument("--batch_size", type=int, default=8, help="size of each image batch")
-    parser.add_argument("--gradient_accumulations", type=int, default=2, help="number of gradient accums before step")
-    parser.add_argument("--model_def", type=str, default="config/yolov3-tiny-mc.cfg", help="path to model definition file")
-    parser.add_argument("--data_config", type=str, default="config/minecraft.data", help="path to data config file")
+    parser.add_argument("--gradient_accumulations", type=int, default=4, help="number of gradient accums before step")
+    parser.add_argument("--model_def", type=str, default="config/yolov3-tiny-softball.cfg", help="path to model definition file")
+    parser.add_argument("--data_config", type=str, default="config/softball.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
@@ -87,6 +87,8 @@ if __name__ == "__main__":
     print(opt)
 
     logger = Logger("logs")
+
+    logfile = open('val.log', 'w')
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -111,11 +113,11 @@ if __name__ == "__main__":
             model.load_darknet_weights(opt.pretrained_weights)
 
     # Get dataloader
-    dataset = ListDataset(train_path, augment=True)
+    dataset = ListDataset(train_path, class_names, img_size=opt.img_size, augment=True)
     dataloader = DataLoaderX(
         dataset,
         batch_size=opt.batch_size,
-        shuffle=True,
+        shuffle=False,
         num_workers=0,
         pin_memory=False,
         collate_fn=dataset.collate_fn)
@@ -183,7 +185,7 @@ if __name__ == "__main__":
             #   Log progress
             # ----------------
 
-            log_str = "\n---- [Epoch %d/%d, Batch %d] ----\n" % (epoch + 1, opt.epochs, batch_i)
+            log_str = "\n---- [Epoch %d/%d, Batch %d] ----\n" % (epoch, opt.epochs, batch_i)
 
             metric_table = [["Metrics", *[f"YOLO Layer {i}" for i in range(len(model.yolo_layers))]]]
 
@@ -250,5 +252,10 @@ if __name__ == "__main__":
             print(AsciiTable(ap_table).table)
             print(f"---- mAP {AP.mean()}")
 
+            print(f"\n---- Evaluating Epoch:{epoch} ----", file=logfile)
+            print(AsciiTable(ap_table).table, file=logfile)
+            print(f"---- mAP {AP.mean()}", file=logfile)
+            logfile.flush()
+
         if epoch % opt.checkpoint_interval == 0:
-            torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % epoch + 1)
+            torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % epoch)

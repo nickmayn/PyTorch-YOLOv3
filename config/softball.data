@@ -1,0 +1,4 @@
+classes= 2
+train=data/softball/train.txt
+valid=data/softball/valid.txt
+names=data/softball/classes.names

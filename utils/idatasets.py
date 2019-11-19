@@ -40,8 +40,8 @@ class ImageFolder(Dataset):
         return len(self.files)
 
 
-class ListDataset(Dataset):
-    def __init__(self, list_path, img_size=416, augment=True):
+class ListDataset(torch.utils.data.IterableDataset):
+    def __init__(self, list_path, img_size=416, augment=True, target_device='cuda'):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
 
@@ -53,12 +53,18 @@ class ListDataset(Dataset):
         self.max_objects = 100
         self.augment = augment
 
+        self.target_device = target_device
+
+        self.iter_start = 0
+        self.iter = 0
         self.end = len(self.img_files)
 
-        self.stream = torch.cuda.Stream()
+    def preload(self):
+        if self.iter >= self.end:
+            self.next_data = None
+            return
 
-    def __getitem__(self, index):
-        idx = index % len(self.img_files)
+        idx = self.iter % len(self.img_files)
         img_path = self.img_files[idx].rstrip()
         label_path = self.label_files[idx].rstrip()
 
@@ -73,9 +79,14 @@ class ListDataset(Dataset):
         with torch.cuda.stream(self.stream):
             img = img.cuda(non_blocking=True)
             img, target = self.prepare(img, boxes)
-            target = target.cuda(non_blocking=True).float()
+            
+            if self.target_device == 'cuda':
+                target = target.cuda(non_blocking=True).float()
+            else:
+                target = target.float()
 
-        return img_path, img, target
+        self.iter += 1
+        self.next_data = img_path, img, target
 
     def __next__(self):
         if self.next_data is None:
@@ -92,6 +103,27 @@ class ListDataset(Dataset):
 
         self.preload()
         return img_path, img, target
+
+    def __iter__(self):
+        worker_info = torch.utils.data.get_worker_info()
+        if worker_info is None:  # single-process data loading, return the full iterator
+            iter_start = 0
+            iter_end = self.end
+        else:  # in a worker process
+            # split workload
+            per_worker = int(math.ceil(self.end / float(worker_info.num_workers)))
+            worker_id = worker_info.id
+            iter_start = worker_id * per_worker
+            iter_end = min(iter_start + per_worker, self.end)
+        
+        self.stream = torch.cuda.Stream()
+        
+        self.iter_start = iter_start
+        self.iter = iter_start
+        self.end = iter_end
+
+        self.preload()
+        return self
 
     def prepare(self, img, boxes):
         # Handle images with less than three channels
@@ -174,13 +206,4 @@ class ListDataset(Dataset):
 
         imgs = torch.stack(batch_imgs)
         targets = torch.cat(batch_targets, 0)
-
-        torch.cuda.current_stream().wait_stream(self.stream)
-
-        imgs.record_stream(torch.cuda.current_stream())
-        targets.record_stream(torch.cuda.current_stream())
-
         return paths, imgs, targets
-
-    def __len__(self):
-        return len(self.img_files)

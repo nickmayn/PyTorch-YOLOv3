@@ -12,3 +12,6 @@ __pycache__
 checkpoints
 logs
 data/minecraft
+data/softball
+data/samples/*
+val.log
