@@ -41,7 +41,7 @@ class ImageFolder(Dataset):
 
 
 class ListDataset(Dataset):
-    def __init__(self, list_path, img_size=416, augment=True):
+    def __init__(self, list_path, img_size=416, multiscale=True, augment=True):
         with open(list_path, "r") as file:
             self.img_files = file.readlines()
 
@@ -52,6 +52,10 @@ class ListDataset(Dataset):
         self.img_size = img_size
         self.max_objects = 100
         self.augment = augment
+        self.multiscale = multiscale
+        self.min_size = self.img_size - 3 * 32
+        self.max_size = self.img_size + 3 * 32
+        self.batch_count = 0
 
         self.end = len(self.img_files)
 
@@ -65,6 +69,11 @@ class ListDataset(Dataset):
         boxes = None
         if os.path.exists(label_path):
             boxes = torch.from_numpy(np.loadtxt(label_path).reshape(-1, 5))
+        else:
+            raise RuntimeError(f'{label_path} is not exists')
+
+        if boxes is None:
+            raise RuntimeError(f'{label_path} has no label')
 
         # Load image, use uint8 to save time
         data = np.array(Image.open(img_path).convert('RGB')).copy()
@@ -157,13 +166,18 @@ class ListDataset(Dataset):
         for i, boxes in enumerate(targets):
             boxes[:, 0] = i
 
+        self.batch_count += 1
+
+        # Resize to input size
+        if self.multiscale and self.batch_count % 10 == 0:
+            self.img_size = random.choice(range(self.min_size, self.max_size + 1, 32))
+
         batch_imgs = []
         batch_targets = []
         for img, target in zip(imgs, targets):
             img = img.float()
             img *= 1/255.0
 
-            # Resize to input size
             img = F.interpolate(img.unsqueeze(0), size=self.img_size, mode="nearest").squeeze(0)
 
             if self.augment:

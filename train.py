@@ -70,11 +70,11 @@ def evaluate(model, path, iou_thres, conf_thres, nms_thres, img_size, batch_size
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=300, help="number of epochs")
+    parser.add_argument("--epochs", type=int, default=350, help="number of epochs")
     parser.add_argument("--batch_size", type=int, default=8, help="size of each image batch")
     parser.add_argument("--gradient_accumulations", type=int, default=2, help="number of gradient accums before step")
-    parser.add_argument("--model_def", type=str, default="config/yolov3-tiny-mc.cfg", help="path to model definition file")
-    parser.add_argument("--data_config", type=str, default="config/minecraft.data", help="path to data config file")
+    parser.add_argument("--model_def", type=str, default="config/yolov3-tiny-softball.cfg", help="path to model definition file")
+    parser.add_argument("--data_config", type=str, default="config/softball.data", help="path to data config file")
     parser.add_argument("--pretrained_weights", type=str, help="if specified starts from checkpoint model")
     parser.add_argument("--n_cpu", type=int, default=0, help="number of cpu threads to use during batch generation")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
@@ -87,6 +87,7 @@ if __name__ == "__main__":
     print(opt)
 
     logger = Logger("logs")
+    logfile = open('val.log', 'w')
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -132,6 +133,10 @@ if __name__ == "__main__":
     # )
 
     optimizer = torch.optim.Adam(model.parameters())
+
+    lr_decay = [200, 250]
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer, milestones=lr_decay, gamma=0.1)
 
     metrics = [
         "grid_size",
@@ -233,7 +238,7 @@ if __name__ == "__main__":
                 conf_thres=0.5,
                 nms_thres=0.5,
                 img_size=opt.img_size,
-                batch_size=8,
+                batch_size=10,
             )
             evaluation_metrics = [
                 ("val_precision", precision.mean()),
@@ -250,5 +255,14 @@ if __name__ == "__main__":
             print(AsciiTable(ap_table).table)
             print(f"---- mAP {AP.mean()}")
 
+            print(f"\n---- Evaluating Epoch:{epoch} ----", file=logfile)
+            print(AsciiTable(ap_table).table, file=logfile)
+            print(f"---- mAP {AP.mean()}", file=logfile)
+            logfile.flush()
+
         if epoch % opt.checkpoint_interval == 0:
-            torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % epoch + 1)
+            torch.save(model.state_dict(), f"checkpoints/yolov3_ckpt_%d.pth" % (epoch + 1))
+
+        lr_scheduler.step()
+
+    logfile.close()
