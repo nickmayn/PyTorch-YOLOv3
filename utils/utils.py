@@ -1,14 +1,11 @@
 from __future__ import division
 import math
 import time
-import tqdm
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 
 def to_cpu(tensor):
@@ -80,7 +77,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
     # Create Precision-Recall curve and compute AP for each class
     ap, p, r = [], [], []
-    for c in tqdm.tqdm(unique_classes, desc="Computing AP"):
+    for c in tqdm(unique_classes, desc="Computing AP"):
         i = pred_cls == c
         n_gt = (target_cls == c).sum()  # Number of ground truth objects
         n_p = i.sum()  # Number of predicted objects
