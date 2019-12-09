@@ -130,6 +130,13 @@ $ python3 train.py --model_def config/yolov3-custom.cfg --data_config config/cus
 Add `--pretrained_weights weights/darknet53.conv.74` to train using a backend pretrained on ImageNet.
 
 
+## Using Model
+### creating CSV of pitches
+change directory to detect. Then run the program `vdetect_csv.py`
+
+### using CSV's
+after running `vdetect_csv.py` a file of csv locations will be generated will the labels and the center of the object being predicted along with the frames. After this run `showImage.py` this will display the image and will export to a text file containing the XOS coordinates.
+
 ## Credit
 
 ### YOLOv3: An Incremental Improvement
