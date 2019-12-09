@@ -76,10 +76,10 @@ if __name__ == "__main__":
             y4 = int((zoneval.cy + zoneval.h / 2) * org_h)
             
             # begin work on scaling.
-            xpad = x1 - 100
-            ypad = y1 - 100
-            xMaxpad = x4 + 100
-            yMaxpad = y4 + 100
+            xpad = x1 - 60
+            ypad = y1 - 50
+            xMaxpad = x4 + 55
+            yMaxpad = y4 + 60
             
             # find the range
             xran = xMaxpad - xpad
@@ -94,7 +94,7 @@ if __name__ == "__main__":
                 plocx = (xval.iloc[i] - xpad)/xran
                 plocy = (yval.iloc[i] - ypad)/yran
                 f = open("output.csv", "a")
-                f.write(str(int(plocx*240)) + " " + str(int(plocy*240)) + '\n')
+                f.write(str(int(plocx*240)) + " " + str(int(plocy*250)) + " " + str(int(240*(x1 - xpad)/xran)) + " "+ str(int(250*(y1 - ypad)/yran)) + " " + str(int(240*(x4 - xpad)/xran)) + " " + str(int(250*(y4 - ypad)/yran))+ '\n')
                 f.close()
             cv2.imshow('image', image)
             key = cv2.waitKey()
