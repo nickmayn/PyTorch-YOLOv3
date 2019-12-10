@@ -176,9 +176,6 @@ if __name__ == "__main__":
             # Rescale boxes to original image
             for dects in detections:
                 cx, cy, w, h, conf, cls_conf, cls_pred = [x.item() for x in dects]
-                f = open("test.txt", "a")
-                f.write(str(cx) + "," + str(cy) + "," + str(w) + "," + str(h) + "\n")
-                f.close()
                 print(f"\t + Label: {classes[int(cls_pred)]: <6} | Obj Conf: {conf:.5f} | Class Conf: {cls_conf:.5f}")
                 if cls_conf < 0.6:
                     continue
