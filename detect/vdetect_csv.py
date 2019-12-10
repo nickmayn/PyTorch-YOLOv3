@@ -185,7 +185,7 @@ if __name__ == "__main__":
                 if opt.export:
                     org_h, org_w = image.shape[:2]
                     f = open("locations.csv", "a")
-                    f.write(str(i+1)+ "," + classes[int(cls_pred)] + "," str(int(cx*org_w)) + "," + str(int(cy*org_h)) + "," + str(w) + "," + str(h) + "\n")
+                    f.write(str(i+1) + "," + classes[int(cls_pred)] + "," + str(int(cx*org_w)) + "," + str(int(cy*org_h))+ "," + str(w) + "," + str(h) + "\n")
                     f.close()
                 
                 if opt.display:
