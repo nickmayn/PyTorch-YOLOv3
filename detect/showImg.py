@@ -43,6 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--vid", type=str, default="../UVA4-13-19Game2.mp4", help="path to video file")
     parser.add_argument("--img_size", type=int, default=416, help="size of each image dimension")
     
+    
     opt = parser.parse_args()
     print(opt)
     
@@ -56,6 +57,7 @@ if __name__ == "__main__":
     
     vid = VideoLoader(opt.vid)
     
+    counter = 0
     for frameID, image in enumerate(vid):
         if(frameID in list(pitches.frame)):
             org_h, org_w = image.shape[:2]
@@ -63,7 +65,8 @@ if __name__ == "__main__":
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             xval = pitches.x[pitches.frame == frameID]
             yval = pitches.y[pitches.frame == frameID]
-            zoneval = strikezone[strikezone.frame == frameID]
+            #zoneval = strikezone[strikezone.frame == frameID]
+            zoneval = strikezone[:1]
             
             org_h, org_w = image.shape[:2]
             x1 = int((zoneval.cx - zoneval.w / 2) * org_w)
@@ -75,26 +78,25 @@ if __name__ == "__main__":
             x4 = int((zoneval.cx + zoneval.w / 2) * org_w)
             y4 = int((zoneval.cy + zoneval.h / 2) * org_h)
             
-            # begin work on scaling.
-            xpad = x1 - 60
-            ypad = y1 - 50
-            xMaxpad = x4 + 55
-            yMaxpad = y4 + 60
             
-            # find the range
-            xran = xMaxpad - xpad
-            yran = yMaxpad - ypad
+            # find the range of the strikezone
+            xran = abs(x4 - x1)
+            yran = abs(y4 - y1)
+            xpad = 60
+            ypad = 50
             
             
             
-            print(str(x1)+ ' ' + str (y1) + '\n' + str(x2)+ ' ' + str (y2) + '\n'+ str(x3)+ ' ' + str (y3) + '\n'+ str(x4)+ ' ' + str (y4))
+            print('Frame #: ' + str(counter))
+            counter+=1
             cv2.rectangle(image, (x1, y1), (x4, y4), (255, 0, 0, 255), thickness=2)
             for i in range(len(xval)):
                 cv2.circle(image, (xval.iloc[i], yval.iloc[i]), 10, (140, 255, 0) , 3)
-                plocx = (xval.iloc[i] - xpad)/xran
-                plocy = (yval.iloc[i] - ypad)/yran
+                
+                plocx = int(125*(xval.iloc[i] - x1)/xran)
+                plocy = int(140*(yval.iloc[i] - y1)/yran)
                 f = open("output.csv", "a")
-                f.write(str(int(plocx*240)) + " " + str(int(plocy*250)) + " " + str(int(240*(x1 - xpad)/xran)) + " "+ str(int(250*(y1 - ypad)/yran)) + " " + str(int(240*(x4 - xpad)/xran)) + " " + str(int(250*(y4 - ypad)/yran))+ '\n')
+                f.write(str(plocx) + " " + str(plocy) + " " + str(x1) + " "+ str(x4) + " " + str(y1) + " " + str(y4)+ '\n')
                 f.close()
             cv2.imshow('image', image)
             key = cv2.waitKey()
